@@ -1,8 +1,12 @@
+import json
 import logging
 import os
 import re
+import subprocess
 
 logger = logging.getLogger(__name__)
+
+_smartctl_available: bool | None = None
 
 HWMON_PATH = "/sys/class/hwmon"
 BLOCK_PATH = "/sys/class/block"
@@ -77,6 +81,107 @@ def _build_drivetemp_map() -> dict[str, tuple[str, str, str]]:
             mapping[hwmon_real] = (stable_key, label, model or dev)
 
     return mapping
+
+
+def _smartctl_read_drive(dev_path: str) -> dict | None:
+    """Run smartctl on a block device and return temperature info, or None."""
+    global _smartctl_available
+    if _smartctl_available is False:
+        return None
+
+    try:
+        result = subprocess.run(
+            ["smartctl", "--json=c", "-a", dev_path],
+            capture_output=True, timeout=10,
+        )
+    except FileNotFoundError:
+        if _smartctl_available is None:
+            logger.info("smartctl not installed, SAS/SCSI temperature detection disabled")
+        _smartctl_available = False
+        return None
+    except subprocess.TimeoutExpired:
+        logger.warning("smartctl timed out for %s", dev_path)
+        return None
+
+    _smartctl_available = True
+
+    try:
+        data = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    temp = data.get("temperature", {}).get("current")
+    if temp is None:
+        return None
+
+    model = data.get("model_name", "")
+    serial = data.get("serial_number", "")
+
+    wwn = data.get("wwn")
+    if wwn and "naa" in wwn and "id" in wwn:
+        oui = wwn.get("oui", 0)
+        stable_key = f"wwid-naa.{wwn['naa']:x}{oui:06x}{wwn['id']:09x}"
+    elif serial:
+        stable_key = f"serial-{_safe_wwid(serial)}"
+    else:
+        stable_key = None
+
+    return {
+        "temp": float(temp),
+        "model": model,
+        "stable_key": stable_key,
+    }
+
+
+def _detect_smartctl_sensors() -> list[dict]:
+    """
+    Find drives with SMART temperature data but no hwmon temperature entry.
+    Covers SAS drives that the drivetemp kernel module doesn't support.
+    """
+    sensors = []
+
+    try:
+        block_devs = os.listdir(BLOCK_PATH)
+    except OSError:
+        return sensors
+
+    for dev in sorted(block_devs):
+        if not dev.startswith("sd"):
+            continue
+
+        dev_path = os.path.join(BLOCK_PATH, dev)
+
+        if os.path.exists(os.path.join(dev_path, "partition")):
+            continue
+
+        block_real = os.path.realpath(dev_path)
+        hwmon_sub = os.path.join(block_real, "device", "hwmon")
+
+        # Skip drives already covered by drivetemp/hwmon
+        if os.path.isdir(hwmon_sub):
+            try:
+                if os.listdir(hwmon_sub):
+                    continue
+            except OSError:
+                pass
+
+        info = _smartctl_read_drive(f"/dev/{dev}")
+        if info is None:
+            continue
+
+        stable_key = info["stable_key"] or dev
+        model = info["model"] or dev
+        label = f"{dev} — {model}" if info["model"] else dev
+        sensor_id = f"smartctl-{stable_key}/{model}"
+
+        sensors.append({
+            "id": sensor_id,
+            "driver": "smartctl",
+            "label": label,
+            "current_temp": info["temp"],
+        })
+
+    return sensors
 
 
 def detect_sensors() -> list[dict]:
@@ -154,6 +259,12 @@ def detect_sensors() -> list[dict]:
                 "label": label,
                 "current_temp": current_temp,
             })
+
+    # Fallback: detect SAS/SCSI drives via smartctl (no hwmon coverage)
+    smartctl_sensors = _detect_smartctl_sensors()
+    if smartctl_sensors:
+        logger.info("Detected %d additional sensor(s) via smartctl", len(smartctl_sensors))
+        sensors.extend(smartctl_sensors)
 
     logger.info("Detected %d temperature sensor(s)", len(sensors))
     return sensors
