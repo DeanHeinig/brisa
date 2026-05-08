@@ -70,10 +70,14 @@ Either backend works independently — you don't need a USB controller to use hw
 
 ## Quick Start
 
+Brisa does **not** currently publish a prebuilt Docker image. Build the image locally before starting it with Docker Compose.
+
 ```bash
 git clone https://github.com/brunoorsolon/brisa.git
-docker build -t brisa:latest brisa/
-docker compose up -d
+cd brisa
+cp docker-compose.yml.example docker-compose.yml
+# Edit docker-compose.yml and set the /data volume path for your host.
+docker compose up -d --build
 ```
 
 The web UI is available at `http://<host>:9595`.
@@ -159,6 +163,8 @@ services:
       - /docker/brisa:/data
 ```
 
+The `build: brisa/` line is important. Without it, Docker Compose tries to pull `brisa:latest` from a registry and fails unless you have published that image yourself.
+
 ---
 
 ## Podman
@@ -232,15 +238,16 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for a full description of the design, dat
 ## Development
 
 ```bash
-docker build -t brisa:latest brisa/
-docker compose up -d
+cp docker-compose.yml.example docker-compose.yml
+# Edit docker-compose.yml and set the /data volume path for your host.
+docker compose up -d --build
 ```
 
-Optional: if you don't have a compose file, you can use the example provided, just remember to update the volume mappings to match your system.
+If you prefer to build manually first:
 
-Run this before docker compose up -d:
 ```bash
-mv docker-compose.yml.example docker-compose.yml
+docker build -t brisa:latest brisa/
+docker compose up -d
 ```
 
 Logs:
