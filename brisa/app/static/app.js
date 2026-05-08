@@ -95,7 +95,11 @@ const SIDEBAR_HTML = `
     <img src="/logo.png" alt="Brisa" style="width:48px; height:48px; object-fit:contain; flex-shrink:0;" />
     <div>
       <div class="wordmark">bri<span>sa</span></div>
+<<<<<<< HEAD
       <div class="version">v1.0.0</div>
+=======
+      <div class="version">v0.4.0</div>
+>>>>>>> origin/main
     </div>
   </div>
 </div>
