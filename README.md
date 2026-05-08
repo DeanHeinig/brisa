@@ -2,7 +2,7 @@
   <img src="brisa/app/static/logo_text.png" width="250">
 </p>
 
-*v0.3.1*
+*v1.0.0*
 
 Brisa is a self-contained Docker service for controlling fans on TrueNAS SCALE (and any other Linux host where you can run Docker but can't install packages directly).
 
@@ -70,14 +70,32 @@ Either backend works independently — you don't need a USB controller to use hw
 
 ## Quick Start
 
-Brisa does **not** currently publish a prebuilt Docker image. Build the image locally before starting it with Docker Compose.
+Brisa publishes a Docker image to GitHub Container Registry:
+
+```text
+ghcr.io/brunoorsolon/brisa:latest
+```
+
+Create a `docker-compose.yml` file:
+
+```yaml
+services:
+  brisa:
+    image: ghcr.io/brunoorsolon/brisa:latest
+    container_name: brisa
+    restart: unless-stopped
+    privileged: true
+    network_mode: bridge
+    ports:
+      - "9595:9595"
+    volumes:
+      - /docker/brisa:/data
+```
+
+Update `/docker/brisa` to the host path where you want Brisa to store its config and history, then start it:
 
 ```bash
-git clone https://github.com/brunoorsolon/brisa.git
-cd brisa
-cp docker-compose.yml.example docker-compose.yml
-# Edit docker-compose.yml and set the /data volume path for your host.
-docker compose up -d --build
+docker compose up -d
 ```
 
 The web UI is available at `http://<host>:9595`.
@@ -151,8 +169,7 @@ Example `docker-compose.yml`:
 ```yaml
 services:
   brisa:
-    image: brisa:latest
-    build: brisa/
+    image: ghcr.io/brunoorsolon/brisa:latest
     container_name: brisa
     restart: unless-stopped
     privileged: true
@@ -163,8 +180,6 @@ services:
       - /docker/brisa:/data
 ```
 
-The `build: brisa/` line is important. Without it, Docker Compose tries to pull `brisa:latest` from a registry and fails unless you have published that image yourself.
-
 ---
 
 ## Podman
@@ -174,8 +189,11 @@ Podman runs rootless by default, which means `--privileged` does not grant real 
 For hwmon-pwm fan control with Podman, run as real root with `/sys` mounted:
 
 ```bash
-sudo podman build -t brisa:latest brisa/
-sudo podman run --privileged -v /sys:/sys -p 9595:9595 -v /path/to/data:/data brisa:latest
+sudo podman run --privileged \
+  -v /sys:/sys \
+  -p 9595:9595 \
+  -v /path/to/data:/data \
+  ghcr.io/brunoorsolon/brisa:latest
 ```
 
 If only using liquidctl (USB) fans, rootless Podman with `--privileged` is sufficient.
@@ -237,17 +255,29 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for a full description of the design, dat
 
 ## Development
 
+For local development, build the image from source:
+
 ```bash
+git clone https://github.com/brunoorsolon/brisa.git
+cd brisa
 cp docker-compose.yml.example docker-compose.yml
-# Edit docker-compose.yml and set the /data volume path for your host.
-docker compose up -d --build
 ```
 
-If you prefer to build manually first:
+Add a local build override:
 
 ```bash
-docker build -t brisa:latest brisa/
-docker compose up -d
+cat > docker-compose.override.yml <<'EOF'
+services:
+  brisa:
+    image: brisa:local
+    build: brisa/
+EOF
+```
+
+Then start Brisa:
+
+```bash
+docker compose up -d --build
 ```
 
 Logs:

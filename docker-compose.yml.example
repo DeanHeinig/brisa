@@ -1,7 +1,6 @@
 services:
   brisa:
-    image: brisa:latest
-    build: brisa/
+    image: ghcr.io/brunoorsolon/brisa:latest
     container_name: brisa
     restart: unless-stopped
     privileged: true

@@ -1,6 +1,6 @@
 # Fan Control Service — Architecture Document
 
-**Status:** v0.3.1 — implemented and running
+**Status:** v1.0.0 — implemented and running
 **Last Updated:** March 21, 2026
 
 ---
