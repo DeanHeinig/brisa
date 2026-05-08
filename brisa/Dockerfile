@@ -24,6 +24,7 @@ WORKDIR /app
 # Runtime-only system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libusb-1.0-0 \
+    smartmontools \
     udev \
     && rm -rf /var/lib/apt/lists/*
 
