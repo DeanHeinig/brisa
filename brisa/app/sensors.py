@@ -12,6 +12,8 @@ HWMON_PATH = "/sys/class/hwmon"
 BLOCK_PATH = "/sys/class/block"
 
 
+
+
 def _read_file(path: str) -> str | None:
     """Read a sysfs file and return stripped content, or None on failure."""
     try:
@@ -24,6 +26,26 @@ def _read_file(path: str) -> str | None:
 def _safe_wwid(wwid: str) -> str:
     """Strip whitespace and collapse internal spaces for use in an ID string."""
     return re.sub(r'\s+', '_', wwid.strip())
+
+
+def _is_drive_sleeping(dev: str) -> bool:
+    """
+    Checks if a drive is in standby/sleep mode using smartctl without waking it.
+    Returns True if sleeping, False if awake or unsure.
+    """
+    try:
+        # Use -n standby to abort if asleep, and -d sat to skip auto-probe wakeups
+        result = subprocess.run(
+            ["smartctl", "-d", "sat", "-n", "standby", "-c", f"/dev/{dev}"],
+            capture_output=True, text=True, timeout=5
+        )
+        # smartctl returns exit code 2 if the device is in standby/sleep
+        if result.returncode == 2 or "standby" in result.stdout.lower() or "device is in standby" in result.stdout.lower():
+            return True
+    except Exception:
+        pass
+    return False
+
 
 
 def _build_drivetemp_map() -> dict[str, tuple[str, str, str]]:
@@ -89,9 +111,18 @@ def _smartctl_read_drive(dev_path: str) -> dict | None:
     if _smartctl_available is False:
         return None
 
+     # Abort tracking immediately if disk state target registers as sleeping
+    dev_name = os.path.basename(dev_path)
+    if _is_drive_sleeping(dev_name):
+        return {
+            "temp": 30.0,
+            "model": "Sleeping Drive",
+            "stable_key": f"sleeping-{dev_name}",
+        }
+
     try:
         result = subprocess.run(
-            ["smartctl", "--json=c", "-a", dev_path],
+            ["smartctl", "-d", "sat", "-n", "standby", "--json=c", "-a", dev_path],
             capture_output=True, timeout=10,
         )
     except FileNotFoundError:
@@ -233,6 +264,22 @@ def detect_sensors() -> list[dict]:
 
         for temp_input in temp_inputs:
             n = temp_input[len("temp"):-len("_input")]
+
+             # Intercept system reads if it's an HDD managed by drivetemp
+            if driver == "drivetemp" and device_path in drivetemp_map:
+                stable_key, label, model, dev_name = drivetemp_map[device_path]
+                
+                if _is_drive_sleeping(dev_name):
+                    # Inject safe baseline metrics. Bypasses opening the active kernel path file.
+                    current_temp = 30.0 
+                    sensor_id = f"drivetemp-{stable_key}/{model}"
+                    sensors.append({
+                        "id": sensor_id,
+                        "driver": driver,
+                        "label": f"{label} (ASLEEP)",
+                        "current_temp": current_temp,
+                    })
+                    continue 
 
             raw = _read_file(os.path.join(device_path, temp_input))
             if raw is None:
