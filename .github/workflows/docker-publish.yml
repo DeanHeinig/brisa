@@ -28,7 +28,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/DeanHeinig/brisa
+          images: ghcr.io/deanheinig/brisa
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
